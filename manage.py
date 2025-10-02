@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import signal
-import psycopg2
+import psycopg
 from dotenv import load_dotenv
 
 # Import database functions
@@ -32,7 +32,7 @@ def create_database():
     host = os.getenv('DATABASE_HOST', 'ep-red-night-aeq96bnr.c-2.us-east-2.aws.neon.tech')
     
     try:
-        conn = psycopg2.connect(
+        conn = psycopg.connect(
             dbname="postgres",
             user=user,
             password=password,
@@ -214,7 +214,8 @@ def run_server():
     print("Starting server on http://0.0.0.0:8000")
     try:
         import uvicorn
-        uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+        # Use import string for production compatibility
+        uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=os.getenv('DEBUG', 'False').lower() == 'true')
     except ImportError:
         print("Error: uvicorn not installed. Install with 'pip install uvicorn'")
         sys.exit(1)

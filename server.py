@@ -18,12 +18,14 @@ class JobCreate(BaseModel):
     type: Optional[str] = "full-time"
     description: str
     requirements: str
-    salary_min: Optional[float] = None
-    salary_max: Optional[float] = None
+    salary: Optional[str] = None  # Changed to match frontend
+    salary_min: Optional[float] = None  # Keep for backward compatibility
+    salary_max: Optional[float] = None  # Keep for backward compatibility
     salary_currency: Optional[str] = "KSh"
     tags: Optional[str] = ""
     application_email: Optional[str] = ""
-    application_url: Optional[str] = ""
+    application_link: Optional[str] = ""  # Changed to match frontend
+    application_url: Optional[str] = ""  # Keep for backward compatibility
     category: Optional[str] = "General"
 
     @validator('salary_max')
@@ -33,6 +35,29 @@ class JobCreate(BaseModel):
                 raise ValueError('salary_max must be greater than or equal to salary_min')
         return v
 
+    @validator('salary', pre=True, always=True)
+    def parse_salary(cls, v, values):
+        if v and isinstance(v, str):
+            try:
+                # Parse salary range like "80000-120000" or single value
+                parts = v.replace('KSh', '').replace(',', '').strip().split('-')
+                if len(parts) == 2:
+                    values['salary_min'] = float(parts[0])
+                    values['salary_max'] = float(parts[1])
+                else:
+                    values['salary_min'] = float(parts[0])
+                    values['salary_max'] = float(parts[0])
+            except (ValueError, IndexError):
+                raise ValueError('Invalid salary format. Use "min-max" or single value.')
+        return v
+
+    @validator('application_url', pre=True, always=True)
+    def sync_application_link(cls, v, values):
+        # Sync application_link with application_url
+        if 'application_link' in values and values['application_link']:
+            return values['application_link']
+        return v
+
 class JobUpdate(BaseModel):
     title: Optional[str] = None
     company: Optional[str] = None
@@ -40,13 +65,43 @@ class JobUpdate(BaseModel):
     type: Optional[str] = None
     description: Optional[str] = None
     requirements: Optional[str] = None
+    salary: Optional[str] = None
     salary_min: Optional[float] = None
     salary_max: Optional[float] = None
     salary_currency: Optional[str] = None
     tags: Optional[str] = None
     application_email: Optional[str] = None
+    application_link: Optional[str] = None
     application_url: Optional[str] = None
     category: Optional[str] = None
+
+    @validator('salary_max')
+    def salary_max_gt_min(cls, v, values):
+        if 'salary_min' in values and values['salary_min'] is not None and v is not None:
+            if v < values['salary_min']:
+                raise ValueError('salary_max must be greater than or equal to salary_min')
+        return v
+
+    @validator('salary', pre=True, always=True)
+    def parse_salary(cls, v, values):
+        if v and isinstance(v, str):
+            try:
+                parts = v.replace('KSh', '').replace(',', '').strip().split('-')
+                if len(parts) == 2:
+                    values['salary_min'] = float(parts[0])
+                    values['salary_max'] = float(parts[1])
+                else:
+                    values['salary_min'] = float(parts[0])
+                    values['salary_max'] = float(parts[0])
+            except (ValueError, IndexError):
+                raise ValueError('Invalid salary format. Use "min-max" or single value.')
+        return v
+
+    @validator('application_url', pre=True, always=True)
+    def sync_application_link(cls, v, values):
+        if 'application_link' in values and values['application_link']:
+            return values['application_link']
+        return v
 
 class JobResponse(BaseModel):
     id: str
@@ -56,12 +111,14 @@ class JobResponse(BaseModel):
     type: str
     description: str
     requirements: str
+    salary: Optional[str]  # Added to match frontend
     salary_min: Optional[float]
     salary_max: Optional[float]
     salary_currency: str
     tags: List[str]
     date_posted: Optional[str]
     application_email: Optional[str]
+    application_link: Optional[str]  # Added to match frontend
     application_url: Optional[str]
     category: Optional[str]
     city: Optional[str]
@@ -96,6 +153,14 @@ def format_job(job_data: dict):
     
     location = f"{job_data.get('city', '')}, {job_data.get('country', '')}" if job_data.get('city') and not job_data.get('remote') else "Remote"
     
+    # Format salary as string for frontend
+    salary = None
+    if job_data.get('salary_min') and job_data.get('salary_max'):
+        if job_data['salary_min'] == job_data['salary_max']:
+            salary = f"{job_data['salary_currency']} {job_data['salary_min']:,.0f}"
+        else:
+            salary = f"{job_data['salary_currency']} {job_data['salary_min']:,.0f}-{job_data['salary_max']:,.0f}"
+    
     return JobResponse(
         id=str(job_data['id']),
         title=job_data['title'],
@@ -104,12 +169,14 @@ def format_job(job_data: dict):
         type=job_data['job_type'],
         description=job_data['description'],
         requirements=job_data.get('requirements', ''),
+        salary=salary,
         salary_min=job_data.get('salary_min'),
         salary_max=job_data.get('salary_max'),
         salary_currency=job_data.get('salary_currency', 'KSh'),
         tags=tags,
         date_posted=job_data['posted_at'].strftime('%Y-%m-%d %H:%M') if job_data.get('posted_at') else None,
         application_email=job_data.get('application_email', ''),
+        application_link=job_data.get('application_url', ''),  # Map to frontend field
         application_url=job_data.get('application_url', ''),
         category=job_data.get('category', ''),
         city=job_data.get('city', ''),
@@ -121,11 +188,17 @@ def format_job(job_data: dict):
 async def root():
     return {"message": "Jobs Parlour API", "version": "1.0.0"}
 
-@app.get("/api/jobs/", response_model=List[JobResponse])
+@app.get("/api/jobs/", response_model=dict)
 async def get_jobs_list(page: int = 1, limit: int = 10, search: Optional[str] = None):
     try:
         jobs_data = get_jobs(page=page, limit=limit, search=search)
-        return [format_job(job) for job in jobs_data]
+        total = len(jobs_data)  # Simplified; consider adding a count query for total jobs
+        return {
+            "results": [format_job(job) for job in jobs_data],
+            "page": page,
+            "limit": limit,
+            "total": total
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -142,9 +215,10 @@ async def get_job_detail(job_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/jobs/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/api/jobs/post/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)  # Added to match frontend
 async def create_new_job(job: JobCreate):
     try:
-        job_data = job.dict()
+        job_data = job.dict(exclude={'salary', 'application_link'})  # Exclude frontend-specific fields
         result = create_job(job_data)
         if not result or not result['id']:
             raise ValueError("Failed to create job")
@@ -158,7 +232,7 @@ async def create_new_job(job: JobCreate):
 @app.put("/api/jobs/{job_id}", response_model=JobResponse)
 async def update_job_detail(job_id: int, job: JobUpdate):
     try:
-        job_data = job.dict(exclude_unset=True)
+        job_data = job.dict(exclude_unset=True, exclude={'salary', 'application_link'})
         success = update_job(job_id, job_data)
         if not success:
             raise HTTPException(status_code=404, detail="Job not found")

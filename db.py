@@ -1,6 +1,6 @@
 import os
-import psycopg2
-import psycopg2.extras
+import psycopg
+from psycopg.rows import dict_row
 import json
 from datetime import datetime
 from dotenv import load_dotenv
@@ -19,12 +19,13 @@ class Database:
             password = os.getenv('DATABASE_PASSWORD', 'npg_hCANMIw4u1Db')
             host = os.getenv('DATABASE_HOST', 'ep-red-night-aeq96bnr.c-2.us-east-2.aws.neon.tech')
             
-            self.conn = psycopg2.connect(
+            self.conn = psycopg.connect(
                 dbname=dbname,
                 user=user,
                 password=password,
                 host=host,
-                sslmode="require"
+                sslmode="require",
+                row_factory=dict_row
             )
             print("Database connection established")
         except Exception as e:
@@ -38,12 +39,9 @@ class Database:
     
     def execute_query(self, query, params=None):
         try:
-            with self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            with self.conn.cursor() as cur:
                 cur.execute(query, params or ())
-                try:
-                    return cur.fetchall()
-                except:
-                    return []
+                return cur.fetchall()
         except Exception as e:
             print(f"Error executing query: {e}")
             self.conn.rollback()
@@ -51,7 +49,7 @@ class Database:
     
     def execute_update(self, query, params=None):
         try:
-            with self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            with self.conn.cursor() as cur:
                 cur.execute(query, params or ())
             self.conn.commit()
             return True
@@ -62,11 +60,10 @@ class Database:
     
     def execute_insert(self, query, params=None):
         try:
-            with self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            with self.conn.cursor() as cur:
                 cur.execute(query, params or ())
-                # Handle ON CONFLICT DO NOTHING case
                 result = cur.fetchone()
-                if result is None:
+                if result is None:  # Handle ON CONFLICT DO NOTHING
                     return None
                 inserted_id = result['id']
             self.conn.commit()
