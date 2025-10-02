@@ -1,7 +1,5 @@
 import os
 import sys
-import subprocess
-import signal
 import psycopg
 from dotenv import load_dotenv
 
@@ -9,20 +7,6 @@ from dotenv import load_dotenv
 from db import create_tables, db, create_job, get_or_create_company, get_or_create_location, get_or_create_category
 
 load_dotenv()
-
-def kill_processes_on_port(port=8000):
-    """Kill any processes running on the specified port."""
-    try:
-        output = subprocess.check_output(["lsof", "-t", f"-i:{port}"], stderr=subprocess.STDOUT)
-        pids = output.decode().strip().split('\n')
-        for pid in pids:
-            if pid:
-                os.kill(int(pid), signal.SIGTERM)
-                print(f"Terminated process {pid} on port {port}")
-    except subprocess.CalledProcessError:
-        print(f"No processes found on port {port}")
-    except Exception as e:
-        print(f"Error terminating processes on port {port}: {e}")
 
 def create_database():
     """Create the database if it doesn't exist"""
@@ -72,9 +56,8 @@ def seed_data():
     print("Seeding database with initial data...")
     
     try:
-        db.conn.autocommit = False  # Use transaction
+        db.conn.autocommit = False
         
-        # Seed companies
         companies = [
             {"name": "Tech Innovations Ltd", "description": "Leading tech company in Kenya"},
             {"name": "Digital Solutions Africa", "description": "Providing digital solutions across Africa"},
@@ -92,7 +75,6 @@ def seed_data():
             else:
                 print(f"Company already exists: {company['name']}")
         
-        # Seed job categories
         categories = [
             {"name": "Engineering", "slug": "engineering"},
             {"name": "Design", "slug": "design"},
@@ -111,7 +93,6 @@ def seed_data():
             else:
                 print(f"Category already exists: {category['name']}")
         
-        # Seed locations
         locations = [
             {"city": "Nairobi", "country": "Kenya", "remote": False},
             {"city": "Mombasa", "country": "Kenya", "remote": False},
@@ -133,7 +114,6 @@ def seed_data():
             else:
                 print(f"Location already exists: {location['city']}, {location['country']}")
         
-        # Seed sample jobs
         sample_jobs = [
             {
                 "title": "Senior Python Developer",
@@ -210,12 +190,11 @@ def reset_database():
 
 def run_server():
     """Run the FastAPI server"""
-    kill_processes_on_port(8000)
-    print("Starting server on http://0.0.0.0:8000")
+    port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8000
+    print(f"Starting server on http://0.0.0.0:{port}")
     try:
         import uvicorn
-        # Use import string for production compatibility
-        uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=os.getenv('DEBUG', 'False').lower() == 'true')
+        uvicorn.run("server:app", host="0.0.0.0", port=port, reload=os.getenv('DEBUG', 'False').lower() == 'true')
     except ImportError:
         print("Error: uvicorn not installed. Install with 'pip install uvicorn'")
         sys.exit(1)
